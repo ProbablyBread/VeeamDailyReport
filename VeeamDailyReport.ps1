@@ -303,6 +303,7 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
     }
 }
 
+### MAIN
 if ($DaysAgo -lt 0) {
     Write-Error "The -DaysAgo parameter must be greater than or equals to 0."
     exit(1)
