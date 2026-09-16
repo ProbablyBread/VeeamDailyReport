@@ -25,7 +25,7 @@
     Default: 9
 
 .PARAMETER ReplaceOutputFile
-    If set to true, replaces the CSV file at the specified directory. 
+    If set to true, replaces the CSV file at the specified -OutputDirectory. Otherwise, appends the results of the current run to the existing CSV file.
 
     Default: False
 
