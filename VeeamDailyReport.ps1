@@ -241,24 +241,24 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 
     # failsafe, these generally shouldn't happen
     if ($BackupDetails -eq $null) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Array" -and $BackupDetails.Length -le 0) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Object" -and $BackupDetails.Session -eq $null) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
 
-    # create destination folder if it doesn't exist
-    if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
-        New-Item -ItemType Directory -Path "$outputDir" | Out-Null
+    if ($missingFlag) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
     }
+    else {
+        # create destination folder if it doesn't exist
+        if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
+            New-Item -ItemType Directory -Path "$outputDir" | Out-Null
+        }
 
-    if ($missingFlag -eq $false) {
         # check if file already exists
         if (Get-Item "$outputFile" -ErrorAction SilentlyContinue) {
             # append lines if $ReplaceOutputFile param is not defined
