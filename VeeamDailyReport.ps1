@@ -23,7 +23,22 @@
     Only accepts integers > 0.
 
     Default: 9
-    
+
+.PARAMETER ReplaceOutputFile
+    If set to true, replaces the CSV file at the specified directory. 
+
+    Default: False
+
+.PARAMETER PrintErrors
+    If set to true, prints the error messages on the console.
+
+    Default: False
+
+.PARAMETER RunEachDay
+    If set to true, runs the report for each day during the specified -StartWindowHour and -BackupWindowHours starting from the specified -DaysAgo parameter.
+
+    Default: False
+
 .PARAMETER OutputDirectory
     The output directory of the CSV file. Subdirectories for year and month will automatically be created under this directory as necessary. 
     CSV files are stored in with the naming convention of yyyyMMdd.csv.
@@ -34,11 +49,6 @@
     C:\Veeam\2026\09\20260921.csv
 
     Default: "C:\Temp\Veeam Daily Reports"
-
-.PARAMETER ReplaceOutputFile
-    Determines if the output CSV file at the specified directory is to be replaced. 
-
-    Default: False
 
 .EXAMPLE
     .\VeeamDailyReport.ps1
@@ -63,19 +73,19 @@
 #>
 
 param(
-    [Parameter(Position = 0)]
     [Int]$DaysAgo = 1, 
 
-    [Parameter(Position = 1)]
     [Int]$StartWindowHour = 21, 
 
-    [Parameter(Position = 2)]
     [Int]$BackupWindowHours = 9, 
 
-    [Parameter(Position = 3)]
-    [String]$OutputDirectory = "C:\Temp\Veeam Daily Reports", 
+    [Bool]$ReplaceOutputFile = $false,
 
-    [Bool]$ReplaceOutputFile = $false
+    [Bool]$RunEachDay = $false, 
+
+    [Bool]$PrintErrors = $false,
+
+    [String]$OutputDirectory = "C:\Temp\Veeam Daily Reports" 
 )
 
 function New-BackupDetailObject ($Job, $Session) {
@@ -108,8 +118,11 @@ function Get-BackupDetails ([DateTime]$TargetStartDate, [DateTime]$TargetEndDate
         if ($job.JobEnabled -eq $true) {
             # get the latest session only within the specified backup window
             $sessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
-            $latestSession = ($sessions | Sort-Object CreationTime -Descending)[0]
-            $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
+
+            if ($sessions.Length -gt 0) {
+                $latestSession = ($sessions | Sort-Object CreationTime -Descending)[0]
+                $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
+            }
         }
     }
 
@@ -119,8 +132,11 @@ function Get-BackupDetails ([DateTime]$TargetStartDate, [DateTime]$TargetEndDate
         if ($job.JobEnabled -eq $true) {
             # get the latest session only within the specified backup window
             $sessions = Get-VBRComputerBackupJobSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
-            $latestSession = ($sessions | Sort-Object CreationTime -Descending)[0]
-            $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
+
+            if ($sessions.Length -gt 0) {
+                $latestSession = ($sessions | Sort-Object CreationTime -Descending)[0]
+                $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
+            }
         }
     }
 
@@ -174,14 +190,22 @@ function Parse-BackupDetails {
                     $backup.FailedTasks = ($tasks | Where-Object { $_.Status -eq "Failed" }).Length
                     $backup.SuccessTasks = $backup.ExpectedTasks - $backup.FailedTasks
                     $backup.SessionMessages = Get-SessionMessages $tasks
-                    Write-Host "$($backup.SessionMessages)"
+                    
+                    if ($PrintErrors -eq $true) {
+                        Write-Host "$($backup.SessionMessages)"
+                    }
+
                     break
                 }
                 "Warning" {
                     Write-Host "$($backup.JobName): WARNING" -BackgroundColor Yellow -ForegroundColor Black
                     $backup.SuccessTasks = $backup.ExpectedTasks
                     $backup.SessionMessages = Get-SessionMessages $tasks
-                    Write-Host "$($backup.SessionMessages)"
+
+                    if ($PrintErrors -eq $true) {
+                        Write-Host "$($backup.SessionMessages)"
+                    }
+
                     break
                 }
                 "Success" {
@@ -204,8 +228,6 @@ function Parse-BackupDetails {
         else {
             Write-Host "$($backup.JobName): NO RUNS BETWEEN $TargetStartDate AND $TargetEndDate" -BackgroundColor Red -ForegroundColor White
         }
-
-        Write-Host "`r`n"
     }
 
     return $backupDetails
@@ -215,15 +237,20 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
     $outputDate = Get-Date $Date -Format "yyyyMMdd"
     $outputDir = "$Directory\$($Date.Year)\$("{0:D2}" -f $Date.Month)"
     $outputFile = "$outputDir\$outputDate.csv"
+    $missingFlag = $false
 
     # failsafe, these generally shouldn't happen
-    if ($BackupDetails.GetType().BaseType.Name -eq "Array" -and $BackupDetails.Length -le 0) {
-        Write-Error "No backup sessions found for $outputDate."
-        exit(1)
+    if ($BackupDetails -eq $null) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
+        $missingFlag = $true
+    }
+    elseif ($BackupDetails.GetType().BaseType.Name -eq "Array" -and $BackupDetails.Length -le 0) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
+        $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Object" -and $BackupDetails.Session -eq $null) {
-        Write-Error "No backup sessions found for $outputDate."
-        exit(1)
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
+        $missingFlag = $true
     }
 
     # create destination folder if it doesn't exist
@@ -231,50 +258,51 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
         New-Item -ItemType Directory -Path "$outputDir" | Out-Null
     }
 
-    # check if file already exists
-    if (Get-Item "$outputFile" -ErrorAction SilentlyContinue) {
-        # append lines if $ReplaceOutputFile param is not defined
-        if (-not $ReplaceOutputFile) {
-            $csv = Import-Csv "$outputFile"
+    if ($missingFlag -eq $false) {
+        # check if file already exists
+        if (Get-Item "$outputFile" -ErrorAction SilentlyContinue) {
+            # append lines if $ReplaceOutputFile param is not defined
+            if (-not $ReplaceOutputFile) {
+                $csv = Import-Csv "$outputFile"
 
-            # loop through each item from existing CSV
-            foreach ($row in $csv) {
-                # if item is not in the latest run
-                if ($row.JobId -notin $BackupDetails.JobId) {
-                    # minimal struct to append to $BackupDetails
-                    $BackupDetails += [PSCustomObject]@{
-                        StartDateTime   = Get-Date $row.StartDateTime 
-                        EndDateTime     = Get-Date $row.EndDateTime
-                        JobId           = $row.JobId
-                        JobName         = $row.JobName
-                        ExpectedTasks   = $row.ExpectedTasks
-                        SuccessTasks    = $row.SuccessTasks
-                        FailedTasks     = $row.FailedTasks
-                        SessionType     = $row.SessionType
-                        SessionMessages = $row.SessionMessages
+                # loop through each item from existing CSV
+                foreach ($row in $csv) {
+                    # if item is not in the latest run
+                    if ($row.JobId -notin $BackupDetails.JobId) {
+                        # minimal struct to append to $BackupDetails
+                        $BackupDetails += [PSCustomObject]@{
+                            StartDateTime   = Get-Date $row.StartDateTime 
+                            EndDateTime     = Get-Date $row.EndDateTime
+                            JobId           = $row.JobId
+                            JobName         = $row.JobName
+                            ExpectedTasks   = $row.ExpectedTasks
+                            SuccessTasks    = $row.SuccessTasks
+                            FailedTasks     = $row.FailedTasks
+                            SessionType     = $row.SessionType
+                            SessionMessages = $row.SessionMessages
+                        }
                     }
                 }
             }
+
+            # delete the existing file 
+            Remove-Item -Force $outputFile -ErrorAction SilentlyContinue | Out-Null
         }
 
-        # delete the existing file 
-        Remove-Item -Force $outputFile -ErrorAction SilentlyContinue | Out-Null
-    }
+        try {
+            $BackupDetails | 
+            Select-Object -Property StartDateTime, EndDateTime, JobId, JobName, ExpectedTasks, SuccessTasks, FailedTasks, SessionType, SessionMessages |
+            Export-Csv $outputFile -Force -NoTypeInformation
 
-    try {
-        $BackupDetails | 
-        Select-Object -Property StartDateTime, EndDateTime, JobId, JobName, ExpectedTasks, SuccessTasks, FailedTasks, SessionType, SessionMessages |
-        Export-Csv $outputFile -Force -NoTypeInformation
-
-        Write-Host "Data written to $($outputFile)."
-    } 
-    catch {
-        Write-Error "Unable to write to $($outputFile)."
-        exit(1) 
+            Write-Host "Data written to $($outputFile)."
+        } 
+        catch {
+            Write-Error "Unable to write to $($outputFile)."
+            exit(1) 
+        }
     }
 }
 
-### MAIN
 if ($DaysAgo -lt 0) {
     Write-Error "The -DaysAgo parameter must be greater than or equals to 0."
     exit(1)
@@ -292,6 +320,23 @@ else {
     $TargetEndDate = $TargetStartDate.AddHours($BackupWindowHours)
 }
 
-$backupDetails = Parse-BackupDetails
-Write-BackupDetailsToFile -BackupDetails $backupDetails -Date $TargetStartDate -Directory $OutputDirectory
+if ($RunEachDay -eq $true) {
+    # loop through all dates up till yesterday
+    while ($TargetStartDate.Date -lt $(Get-Date).Date) {
+        Write-Host "Processing backups between $TargetStartDate and $TargetEndDate..."
+        $backupDetails = Parse-BackupDetails
+        Write-BackupDetailsToFile -BackupDetails $backupDetails -Date $TargetStartDate -Directory $OutputDirectory
+
+        # update start and end dates, reuse same window
+        $TargetStartDate = $TargetStartDate.AddDays(1)
+        $TargetEndDate = $TargetEndDate.AddDays(1)
+
+        Write-Host "`r`n" # formatting
+    }
+}
+else {
+    Write-Host "Processing backups between $TargetStartDate and $TargetEndDate..."
+    $backupDetails = Parse-BackupDetails
+    Write-BackupDetailsToFile -BackupDetails $backupDetails -Date $TargetStartDate -Directory $OutputDirectory
+}
 ### MAIN
