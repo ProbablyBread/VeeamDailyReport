@@ -25,7 +25,7 @@
     Default: 9
 
 .PARAMETER ReplaceOutputFile
-    If set to true, replaces the CSV file at the specified -OutputDirectory. Otherwise, appends the results of the current run to the existing CSV file.
+    If set to true, replaces the CSV file at the specified directory. 
 
     Default: False
 
@@ -97,7 +97,7 @@ function New-BackupDetailObject ($Job, $Session) {
         JobName         = $Job.Name # Job name
         SuccessTasks    = 0
         FailedTasks     = 0
-        ExpectedTasks   = $Job.BackupObject.Length # just naively count the number of objects to be backed up
+        ExpectedTasks   = ($Job | Get-VBRJobObject).Count # just naively count the number of objects to be backed up
         Session         = $Session # the entire session object
         SessionType     = "None"
         SessionMessages = ""
@@ -108,33 +108,21 @@ function Get-BackupDetails ([DateTime]$TargetStartDate, [DateTime]$TargetEndDate
     $jobDetails = @() # array to hold the return value for this function
 
     # collect VM and baremetal backup jobs
-    # baremetal jobs are deprecated from Get-VBRJob hence the filter
-    $vmJobs = Get-VBRJob -WarningAction SilentlyContinue | Where-Object TypeToString -NE "Windows Agent Backup" 
-    $bareMetalJobs = Get-VBRComputerBackupJob
+    $vmJobs = Get-VBRJob -WarningAction SilentlyContinue 
 
     # loop through VM jobs and get all sessions in the target window
     foreach ($job in $vmJobs) {
-        #if ($job.JobEnabled -eq $true -and $job.ScheduleEnabled -eq $true) {
-        if ($job.JobEnabled -eq $true) {
+        if ($job.IsScheduleEnabled -eq $true) {
             # get the latest session only within the specified backup window
-            $sessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
+            $hvSessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
+            $agentSessions = Get-VBRComputerBackupJobSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id } 
 
-            if ($sessions.Length -gt 0) {
-                $latestSession = ($sessions | Sort-Object CreationTime -Descending)[0]
+            if ($hvSessions.Length -gt 0) {
+                $latestSession = ($hvSessions | Sort-Object CreationTime -Descending)[0]
                 $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
             }
-        }
-    }
-
-    # loop through baremetal jobs and get all sessions in the target window
-    foreach ($job in $bareMetalJobs) {
-        #if ($job.JobEnabled -eq $true -and $job.ScheduleEnabled -eq $true) {
-        if ($job.JobEnabled -eq $true) {
-            # get the latest session only within the specified backup window
-            $sessions = Get-VBRComputerBackupJobSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
-
-            if ($sessions.Length -gt 0) {
-                $latestSession = ($sessions | Sort-Object CreationTime -Descending)[0]
+            elseif ($agentSessions.Length -gt 0) {
+                $latestSession = ($agentSessions | Sort-Object CreationTime -Descending)[0]
                 $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
             }
         }
@@ -241,24 +229,24 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 
     # failsafe, these generally shouldn't happen
     if ($BackupDetails -eq $null) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Array" -and $BackupDetails.Length -le 0) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Object" -and $BackupDetails.Session -eq $null) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
 
-    if ($missingFlag) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
+    # create destination folder if it doesn't exist
+    if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
+        New-Item -ItemType Directory -Path "$outputDir" | Out-Null
     }
-    else {
-        # create destination folder if it doesn't exist
-        if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
-            New-Item -ItemType Directory -Path "$outputDir" | Out-Null
-        }
 
+    if ($missingFlag -eq $false) {
         # check if file already exists
         if (Get-Item "$outputFile" -ErrorAction SilentlyContinue) {
             # append lines if $ReplaceOutputFile param is not defined
@@ -303,7 +291,6 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
     }
 }
 
-### MAIN
 if ($DaysAgo -lt 0) {
     Write-Error "The -DaysAgo parameter must be greater than or equals to 0."
     exit(1)
