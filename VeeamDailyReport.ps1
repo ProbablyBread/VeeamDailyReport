@@ -25,7 +25,7 @@
     Default: 9
 
 .PARAMETER ReplaceOutputFile
-    If set to true, replaces the CSV file at the specified directory. 
+    If set to true, replaces the CSV file at the specified -OutputDirectory. Otherwise, appends the reuslts of the current run to the existing CSV file.
 
     Default: False
 
@@ -229,24 +229,24 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 
     # failsafe, these generally shouldn't happen
     if ($BackupDetails -eq $null) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Array" -and $BackupDetails.Length -le 0) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
     elseif ($BackupDetails.GetType().BaseType.Name -eq "Object" -and $BackupDetails.Session -eq $null) {
-        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
         $missingFlag = $true
     }
 
-    # create destination folder if it doesn't exist
-    if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
-        New-Item -ItemType Directory -Path "$outputDir" | Out-Null
+    if ($missingFlag) {
+        Write-Host "No backup sessions found for $outputDate." -BackgroundColor Red -ForegroundColor Black
     }
-
-    if ($missingFlag -eq $false) {
+    else {
+        # create destination folder if it doesn't exist
+        if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
+            New-Item -ItemType Directory -Path "$outputDir" | Out-Null
+        }
+        
         # check if file already exists
         if (Get-Item "$outputFile" -ErrorAction SilentlyContinue) {
             # append lines if $ReplaceOutputFile param is not defined
@@ -291,6 +291,7 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
     }
 }
 
+### MAIN
 if ($DaysAgo -lt 0) {
     Write-Error "The -DaysAgo parameter must be greater than or equals to 0."
     exit(1)
