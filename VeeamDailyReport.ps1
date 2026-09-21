@@ -279,7 +279,9 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 
         try {
             $BackupDetails | 
-            Select-Object -Property StartDateTime, EndDateTime, JobId, JobName, ExpectedTasks, SuccessTasks, FailedTasks, SessionType, SessionMessages |
+            Select-Object -Property @{Name = "StartDateTime"; Expression = { Get-Date $_.StartDateTime -Format "dd MMM yyyy HH:mm:ss" } }, 
+            @{Name = "EndDateTime"; Expression = { Get-Date $_.EndDateTime -Format "dd MMM yyyy HH:mm:ss" } }, 
+            JobId, JobName, ExpectedTasks, SuccessTasks, FailedTasks, SessionType, SessionMessages |
             Export-Csv $outputFile -Force -NoTypeInformation
 
             Write-Host "Data written to $($outputFile)."
