@@ -108,17 +108,17 @@ function Get-BackupDetails ([DateTime]$TargetStartDate, [DateTime]$TargetEndDate
     $jobDetails = @() # array to hold the return value for this function
 
     # collect VM and baremetal backup jobs
-    $vmJobs = Get-VBRJob -WarningAction SilentlyContinue 
+    $jobs = Get-VBRJob -WarningAction SilentlyContinue 
 
     # loop through VM jobs and get all sessions in the target window
-    foreach ($job in $vmJobs) {
+    foreach ($job in $jobs) {
         if ($job.IsScheduleEnabled -eq $true) {
             # get the latest session only within the specified backup window
-            $hvSessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
+            $baremetalSessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
             $agentSessions = Get-VBRComputerBackupJobSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id } 
 
-            if ($hvSessions.Length -gt 0) {
-                $latestSession = ($hvSessions | Sort-Object CreationTime -Descending)[0]
+            if ($baremetalSessions.Length -gt 0) {
+                $latestSession = ($baremetalSessions | Sort-Object CreationTime -Descending)[0]
                 $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
             }
             elseif ($agentSessions.Length -gt 0) {
