@@ -15,36 +15,38 @@ Outputs a CSV file counting the number of successful or failed tasks per backup 
     Generates a Veeam daily backup report for a specified backup window. Mainly to be used for daily checks and record keeping only.
     Outputs a CSV file counting the number of successful or failed tasks per backup job as well as the current status on the command line. 
     
-.PARAMETER DaysAgo
-    Number of days before to generate the report for, e.g. 0 = today, 1 = yesterday, 2 = 2 days ago.
-    Only accepts integers >= 0.
+.PARAMETER StartDate
+    The start date to start generating reports from. 
 
-    Default: 1
+    Default: The previous day
+
+.PARAMETER EndDate
+    The end date (inclusive) to generate reports until.
+    If this parameter is not specified together with -StartDate, the report will only be run for the day specified by the -StartDate parameter. 
+
+    Default: The previous day
 
 .PARAMETER StartWindowHour
     The start hour of the backup window, e.g. 21 = 9pm, 22 = 10pm, 1 = 1am.
-    Only accepts integers > 0.
+    Only accepts integers between 0 and 23.
 
-    Default: 21
+    Default: 18
 
-.PARAMETER BackupWindowHours
-    The number of hours starting from -StartWindowHour, determines the timeframe to look for backup sessions, e.g. 9 = 9 hours from StartWindowHour
-    Only accepts integers > 0.
+.PARAMETER EndWindowHour
+    The end hour of the backup window, e.g. 21 = 9pm, 22 = 10pm, 1 = 1am.
+    Only accepts integers between 0 and 23.
 
-    Default: 9
+    Default: 6
 
 .PARAMETER ReplaceOutputFile
-    If set to true, replaces the CSV file at the specified -OutputDirectory. Otherwise, appends the results of the current run to the existing CSV file.
+    If set to true, replaces the CSV file with the records of only the current run at the specified -OutputDirectory. 
+    If set to false, appends the results of the current run to the existing CSV file.
 
     Default: False
 
 .PARAMETER PrintErrors
-    If set to true, prints the error messages on the console.
-
-    Default: False
-
-.PARAMETER RunEachDay
-    If set to true, runs the report for each day during the specified -StartWindowHour and -BackupWindowHours starting from the specified -DaysAgo parameter.
+    If set to true, prints the Veeam error messages on the console.
+    If set to false, suppresses the Veeam error messages on the console.
 
     Default: False
 
@@ -61,23 +63,22 @@ Outputs a CSV file counting the number of successful or failed tasks per backup 
 
 .EXAMPLE
     .\VeeamDailyReport.ps1
-    Generates the report for yesterday between 9pm to 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
+    Generates the report for yesterday between 6pm to 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -DaysAgo 2
-    Generates the report for backups 2 days ago between 9pm to 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
+    .\VeeamDailyReport.ps1 -StartDate "21 Sep 2026" 
+    Generates the report for backups on 21st September 2026 between 6pm and 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -DaysAgo 0 -StartWindowHour 10 -BackupWindowHours 4
-    Generates the report for backups today between 10am to 2pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
+    .\VeeamDailyReport.ps1 -StartDate "21 Sep 2026" -StartWindowHour 10 -EndWindowHour 18
+    Generates the report for backups on 21st September 2026 between 10am and 6pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -StartWindowHour 10 -BackupWindowHours 2 -OutputDirectory "C:\Users\Administrator\Desktop"
-    Generates the report for yesterday between 10am to 12pm, saved to C:\Users\Administrator\Desktop\YYYY\MM\yyyyMMdd.csv
+    .\VeeamDailyReport.ps1 -StartWindowHour 10 -EndWindowHour 12 -OutputDirectory "C:\Users\Administrator\Desktop"
+    Generates the report for the previous day between 10am and 12pm, saved to C:\Users\Administrator\Desktop\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -DaysAgo 0 -StartWindowHour 10 -BackupWindowHours 4 -ReplaceOutputFile
-    Generates the report for backups today between 10am to 2pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
-    Replaces C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv if it exists.
+    .\VeeamDailyReport.ps1 -StartDate "21 Sep 2026" -EndDate "30 Sep 2026" -StartWindowHour 10 -EndWindowHour 18
+    Generates all reports for backups between 21st September 2026 and 30th September 2026 between 10am and 6pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 #>
 ```
