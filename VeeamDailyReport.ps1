@@ -6,36 +6,38 @@
     Generates a Veeam daily backup report for a specified backup window. Mainly to be used for daily checks and record keeping only.
     Outputs a CSV file counting the number of successful or failed tasks per backup job as well as the current status on the command line. 
     
-.PARAMETER DaysAgo
-    Number of days before to generate the report for, e.g. 0 = today, 1 = yesterday, 2 = 2 days ago.
-    Only accepts integers >= 0.
+.PARAMETER StartDate
+    The start date to start generating reports from. 
 
-    Default: 1
+    Default: The previous day
+
+.PARAMETER EndDate
+    The end date (inclusive) to generate reports until.
+    If this parameter is not specified together with -StartDate, the report will only be run for the day specified by the -StartDate parameter. 
+
+    Default: The previous day
 
 .PARAMETER StartWindowHour
     The start hour of the backup window, e.g. 21 = 9pm, 22 = 10pm, 1 = 1am.
-    Only accepts integers > 0.
+    Only accepts integers between 0 and 23.
 
-    Default: 21
+    Default: 18
 
-.PARAMETER BackupWindowHours
-    The number of hours starting from -StartWindowHour, determines the timeframe to look for backup sessions, e.g. 9 = 9 hours from StartWindowHour
-    Only accepts integers > 0.
+.PARAMETER EndWindowHour
+    The end hour of the backup window, e.g. 21 = 9pm, 22 = 10pm, 1 = 1am.
+    Only accepts integers between 0 and 23.
 
-    Default: 9
+    Default: 6
 
 .PARAMETER ReplaceOutputFile
-    If set to true, replaces the CSV file at the specified -OutputDirectory. Otherwise, appends the reuslts of the current run to the existing CSV file.
+    If set to true, replaces the CSV file with the records of only the current run at the specified -OutputDirectory. 
+    If set to false, appends the results of the current run to the existing CSV file.
 
     Default: False
 
 .PARAMETER PrintErrors
-    If set to true, prints the error messages on the console.
-
-    Default: False
-
-.PARAMETER RunEachDay
-    If set to true, runs the report for each day during the specified -StartWindowHour and -BackupWindowHours starting from the specified -DaysAgo parameter.
+    If set to true, prints the Veeam error messages on the console.
+    If set to false, suppresses the Veeam error messages on the console.
 
     Default: False
 
@@ -52,39 +54,36 @@
 
 .EXAMPLE
     .\VeeamDailyReport.ps1
-    Generates the report for yesterday between 9pm to 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
+    Generates the report for yesterday between 6pm to 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -DaysAgo 2
-    Generates the report for backups 2 days ago between 9pm to 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
+    .\VeeamDailyReport.ps1 -StartDate "21 Sep 2026" 
+    Generates the report for backups on 21st September 2026 between 6pm and 6am, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -DaysAgo 0 -StartWindowHour 10 -BackupWindowHours 4
-    Generates the report for backups today between 10am to 2pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
+    .\VeeamDailyReport.ps1 -StartDate "21 Sep 2026" -StartWindowHour 10 -EndWindowHour 18
+    Generates the report for backups on 21st September 2026 between 10am and 6pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -StartWindowHour 10 -BackupWindowHours 2 -OutputDirectory "C:\Users\Administrator\Desktop"
-    Generates the report for yesterday between 10am to 12pm, saved to C:\Users\Administrator\Desktop\YYYY\MM\yyyyMMdd.csv
+    .\VeeamDailyReport.ps1 -StartWindowHour 10 -EndWindowHour 12 -OutputDirectory "C:\Users\Administrator\Desktop"
+    Generates the report for the previous day between 10am and 12pm, saved to C:\Users\Administrator\Desktop\YYYY\MM\yyyyMMdd.csv
 
 .EXAMPLE
-    .\VeeamDailyReport.ps1 -DaysAgo 0 -StartWindowHour 10 -BackupWindowHours 4 -ReplaceOutputFile
-    Generates the report for backups today between 10am to 2pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
-    Replaces C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv if it exists.
+    .\VeeamDailyReport.ps1 -StartDate "21 Sep 2026" -EndDate "30 Sep 2026" -StartWindowHour 10 -EndWindowHour 18
+    Generates all reports for backups between 21st September 2026 and 30th September 2026 between 10am and 6pm, saved to C:\Temp\Veeam Daily Reports\YYYY\MM\yyyyMMdd.csv
 #>
 
 param(
-    [Int]$DaysAgo = 1, 
+    # default values are defined in the main section for custom error messages 
+    [DateTime]$StartDate,
+    [DateTime]$EndDate,
 
-    [Int]$StartWindowHour = 21, 
-
-    [Int]$BackupWindowHours = 9, 
+    # collect from 6pm to 6am by default 
+    [Int]$StartWindowHour = 18,
+    [Int]$EndWindowHour = 6,
 
     [Bool]$ReplaceOutputFile = $false,
-
-    [Bool]$RunEachDay = $false, 
-
     [Bool]$PrintErrors = $false,
-
     [String]$OutputDirectory = "C:\Temp\Veeam Daily Reports" 
 )
 
@@ -97,32 +96,35 @@ function New-BackupDetailObject ($Job, $Session) {
         JobName         = $Job.Name # Job name
         SuccessTasks    = 0
         FailedTasks     = 0
-        ExpectedTasks   = ($Job | Get-VBRJobObject).Count # just naively count the number of objects to be backed up
+        ExpectedTasks   = (Get-VBRJobObject -Job $Job).Count # just naively count the number of objects to be backed up
         Session         = $Session # the entire session object
         SessionType     = "None"
         SessionMessages = ""
     }
 }
-    
+
 function Get-BackupDetails ([DateTime]$TargetStartDate, [DateTime]$TargetEndDate) {
     $jobDetails = @() # array to hold the return value for this function
 
     # collect VM and baremetal backup jobs
-    $jobs = Get-VBRJob -WarningAction SilentlyContinue 
+    # ignore deprecation warning for baremetal jobs for now on Veeam 12
+    # TODO: detect and separate this between Veeam 12 and 13
+    $jobs = Get-VBRJob -WarningAction SilentlyContinue
+    #$baremetalJobs = Get-VBRComputerBackupJob
 
     # loop through VM jobs and get all sessions in the target window
     foreach ($job in $jobs) {
         if ($job.IsScheduleEnabled -eq $true) {
             # get the latest session only within the specified backup window
-            $baremetalSessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
-            $agentSessions = Get-VBRComputerBackupJobSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id } 
+            $vmSessions = Get-VBRBackupSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
+            $baremetalSessions = Get-VBRComputerBackupJobSession | Where-Object { $_.CreationTime -ge $TargetStartDate -and $_.CreationTime -le $TargetEndDate -and $_.JobId -eq $job.Id }
 
-            if ($baremetalSessions.Length -gt 0) {
-                $latestSession = ($baremetalSessions | Sort-Object CreationTime -Descending)[0]
+            if ($vmSessions.Length -gt 0) {
+                $latestSession = ($vmSessions | Sort-Object CreationTime -Descending)[0]
                 $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
             }
-            elseif ($agentSessions.Length -gt 0) {
-                $latestSession = ($agentSessions | Sort-Object CreationTime -Descending)[0]
+            elseif ($baremetalSessions.Length -gt 0) {
+                $latestSession = ($baremetalSessions | Sort-Object CreationTime -Descending)[0]
                 $jobDetails += New-BackupDetailObject -Job $job -Session $latestSession
             }
         }
@@ -164,10 +166,8 @@ function Get-SessionType ([String]$Type) {
     }
 }
 
-function Parse-BackupDetails {
-    $backupDetails = Get-BackupDetails -TargetStartDate $TargetStartDate -TargetEndDate $TargetEndDate
-
-    foreach ($backup in $backupDetails) {
+function Parse-BackupDetails ($BackupDetails) {
+    foreach ($backup in $BackupDetails) {
         if ($backup.Session.Length -gt 0) {
             $tasks = Get-VBRTaskSession -Session $backup.Session.Id # get tasks for latest session
             $backup.SessionType = Get-SessionType -Type $tasks[0].JobSess.SessionInfo.SessionAlgorithm # get session type based on one task 
@@ -218,7 +218,7 @@ function Parse-BackupDetails {
         }
     }
 
-    return $backupDetails
+    return $BackupDetails
 }
 
 function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
@@ -246,7 +246,7 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
         if (-not(Get-Item "$outputDir" -ErrorAction SilentlyContinue)) {
             New-Item -ItemType Directory -Path "$outputDir" | Out-Null
         }
-        
+
         # check if file already exists
         if (Get-Item "$outputFile" -ErrorAction SilentlyContinue) {
             # append lines if $ReplaceOutputFile param is not defined
@@ -259,8 +259,8 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
                     if ($row.JobId -notin $BackupDetails.JobId) {
                         # minimal struct to append to $BackupDetails
                         $BackupDetails += [PSCustomObject]@{
-                            StartDateTime   = Get-Date $row.StartDateTime 
-                            EndDateTime     = Get-Date $row.EndDateTime
+                            StartDateTime   = Get-Date $row.StartDateTime -Format "dd MMM yyyy HH:mm:ss" 
+                            EndDateTime     = Get-Date $row.EndDateTime -Format "dd MMM yyyy HH:mm:ss"
                             JobId           = $row.JobId
                             JobName         = $row.JobName
                             ExpectedTasks   = $row.ExpectedTasks
@@ -294,40 +294,111 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 }
 
 ### MAIN
-if ($DaysAgo -lt 0) {
-    Write-Error "The -DaysAgo parameter must be greater than or equals to 0."
+# terminate on window hours being below 0 or above 23
+if ($StartWindowHour -lt 0 -or $StartWindowHour -gt 23) {
+    Write-Error "The -StartWindowHour parameter must be greater than 0 and less than 23."
     exit(1)
 }
-elseif ($StartWindowHour -le 0) {
-    Write-Error "The -StartWindowHour parameter must be greater than 0."
+elseif ($EndWindowHour -lt 0 -or $EndWindowHour -gt 23) {
+    Write-Error "The -EndWindowHour parameter must be greater than 0 and less than 23."
     exit(1)
-}
-elseif ($BackupWindowHours -le 0) {
-    Write-Error "The -BackupWindowHours parameter must be greater than 0."
-    exit(1)
-}
-else {
-    $TargetStartDate = (Get-Date).Date.AddDays(-$DaysAgo).AddHours($StartWindowHour)
-    $TargetEndDate = $TargetStartDate.AddHours($BackupWindowHours)
 }
 
-if ($RunEachDay -eq $true) {
-    # loop through all dates up till yesterday
-    while ($TargetStartDate.Date -lt $(Get-Date).Date) {
-        Write-Host "Processing backups between $TargetStartDate and $TargetEndDate..."
-        $backupDetails = Parse-BackupDetails
+# terminate if end date is provided without the start date
+if ($PSBoundParameters.ContainsKey("EndDate") -and -not $PSBoundParameters.ContainsKey("StartDate")) {
+    Write-Error "The -StartDate parameter must be present if the -EndDate parameter is specified."
+    exit(1)
+}
+
+# if start date is provided 
+if ($PSBoundParameters.ContainsKey("StartDate")) {
+    try {
+        $StartDate = (Get-Date $StartDate).Date.AddHours($StartWindowHour)
+    }
+    catch [System.Management.Automation.ParameterBindingException] {
+        Write-Error "Unable to parse the input string for the -StartDate parameter (valid formats are e.g. 01 Sep 2026 or 2026/09/01)."
+        exit(1)
+    }
+}
+# if start date is not provided, default to the previous day
+else {
+    $StartDate = (Get-Date).Date.AddDays(-1).AddHours($StartWindowHour)
+}
+
+# if end date is provided
+if ($PSBoundParameters.ContainsKey("EndDate")) {
+    try {
+        $EndDate = (Get-Date $EndDate).Date.AddHours($EndWindowHour)
+    }
+    catch [System.Management.Automation.ParameterBindingException] {
+        Write-Error "Unable to parse the input string for the -StartDate parameter (valid formats are e.g. 01 Sep 2026 or 2026/09/01)."
+        exit(1)
+    }
+}
+# if end date is not provided
+else {
+    $window = $EndWindowHour - $StartWindowHour
+
+    if ($window -lt 0) {
+        $EndDate = $StartDate.Date.AddDays(1).AddHours($EndWindowHour) # rollover to next day
+    }
+    elseif ($window -gt 0) {
+        $EndDate = $StartDate.AddHours($window) # just add the amount of hours
+    }
+    else {
+        $EndDate = $StartDate.AddDays(1) # add 24 hours 
+    }
+}
+
+$dateDiff = $EndDate - $StartDate
+
+# terminate if end date is earlier than start date
+if ($dateDiff.TotalHours -le 0) {
+    Write-Error "The -EndDate parameter should be greater than the -StartDate parameter."
+    exit(1)
+}
+
+# if it's within a 24 hour period
+if ($dateDiff.Days -le 1) {
+    # just use the params as is
+    Write-Host "Processing backups between $($StartDate.ToString('dd MMM yyyy HH:mm:ss')) and $($EndDate.ToString('dd MMM yyyy HH:mm:ss'))..."
+
+    $Jobs = Get-BackupDetails -TargetStartDate $StartDate -TargetEndDate $EndDate
+    $BackupDetails = Parse-BackupDetails -BackupDetails $Jobs
+    Write-BackupDetailsToFile -BackupDetails $backupDetails -Date $StartDate -Directory $OutputDirectory
+}
+# if it's more than a single day
+else {
+    $TargetStartDate = $StartDate # start date always stays the same
+    $window = $EndWindowHour - $StartWindowHour
+
+    # if window needs rollover (i.e. passing 12am)
+    if ($window -lt 0) {
+        $TargetEndDate = $StartDate.Date.AddDays(1).AddHours($EndWindowHour) # rollover to next day
+        $EndDate = $EndDate.AddDays(1) # include processing for rollover day
+    }
+    # if window doesn't need rollover (i.e. within 12am and 11:59pm)
+    elseif ($window -gt 0) {
+        $TargetEndDate = $StartDate.AddHours($window) # just add the amount of hours
+    }
+    # if window is exactly 24 hours (e.g. 3pm to 3pm)
+    else {
+        $TargetEndDate = $StartDate.AddDays(1) # add 24 hours 
+    }
+
+    # loop through all days
+    while ($TargetStartDate -le $EndDate) {
+        Write-Host "Processing backups between $($TargetStartDate.ToString('dd MMM yyyy HH:mm:ss')) and $($TargetEndDate.ToString('dd MMM yyyy HH:mm:ss'))..."
+
+        $Jobs = Get-BackupDetails -TargetStartDate $TargetStartDate -TargetEndDate $TargetEndDate
+        $BackupDetails = Parse-BackupDetails -BackupDetails $Jobs
         Write-BackupDetailsToFile -BackupDetails $backupDetails -Date $TargetStartDate -Directory $OutputDirectory
 
-        # update start and end dates, reuse same window
+        # use same window, increment days
         $TargetStartDate = $TargetStartDate.AddDays(1)
         $TargetEndDate = $TargetEndDate.AddDays(1)
 
-        Write-Host "`r`n" # formatting
+        Write-Host "`r`n"
     }
-}
-else {
-    Write-Host "Processing backups between $TargetStartDate and $TargetEndDate..."
-    $backupDetails = Parse-BackupDetails
-    Write-BackupDetailsToFile -BackupDetails $backupDetails -Date $TargetStartDate -Directory $OutputDirectory
 }
 ### MAIN
