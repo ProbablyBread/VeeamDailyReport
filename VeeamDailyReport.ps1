@@ -359,7 +359,7 @@ if ($dateDiff.TotalHours -le 0) {
 }
 
 # if it's within a 24 hour period
-if ($dateDiff.Days -le 1) {
+if ($dateDiff.TotalHours -le 24) {
     # just use the params as is
     Write-Host "Processing backups between $($StartDate.ToString('dd MMM yyyy HH:mm:ss')) and $($EndDate.ToString('dd MMM yyyy HH:mm:ss'))..."
 
