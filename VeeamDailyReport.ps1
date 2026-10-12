@@ -295,10 +295,11 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 # check for existence of Veeam.Backup.PowerShell
 # version == 0.0 means the module is not found
 if ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version.Major -eq 5) {
-    Write-Host "Rerun this script with pwsh.exe instead of powershell.exe." -BackgroundColor Orange -ForegroundColor Black
+    Write-Host "The Veeam.Backup.PowerShell module is not installed on the server." -BackgroundColor Red -ForegroundColor White
+    Write-Host "If running on Veeam 13, rerun this script with pwsh.exe instead of powershell.exe." -BackgroundColor Orange -ForegroundColor Black
     exit(1)
 }
-elseif ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version -eq 7) {
+elseif ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version.Major -eq 7) {
     Write-Host "The Veeam.Backup.PowerShell module is not installed on the server." -BackgroundColor Red -ForegroundColor White
     exit(1)
 }
