@@ -107,10 +107,8 @@ function Get-BackupDetails ([DateTime]$TargetStartDate, [DateTime]$TargetEndDate
     $jobDetails = @() # array to hold the return value for this function
 
     # collect VM and baremetal backup jobs
-    # ignore deprecation warning for baremetal jobs for now on Veeam 12
-    # TODO: detect and separate this between Veeam 12 and 13
+    # ignore deprecation warning for baremetal jobs for now
     $jobs = Get-VBRJob -WarningAction SilentlyContinue
-    #$baremetalJobs = Get-VBRComputerBackupJob
 
     # loop through VM jobs and get all sessions in the target window
     foreach ($job in $jobs) {
@@ -294,6 +292,19 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 }
 
 ### MAIN
+# check for existence of Veeam.Backup.PowerShell
+# version == 0.0 means the module is not found
+if ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version.Major -eq 5) {
+    Write-Host "Rerun this script with pwsh.exe instead of powershell.exe." -BackgroundColor Orange -ForegroundColor Black
+    exit(1)
+}
+elseif ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version -eq 7) {
+    Write-Host "The Veeam.Backup.PowerShell module is not installed on the server." -BackgroundColor Red -ForegroundColor White
+    exit(1)
+}
+
+Import-Module Veeam.Backup.PowerShell -WarningAction SilentlyContinue
+
 # terminate on window hours being below 0 or above 23
 if ($StartWindowHour -lt 0 -or $StartWindowHour -gt 23) {
     Write-Error "The -StartWindowHour parameter must be greater than 0 and less than 23."
