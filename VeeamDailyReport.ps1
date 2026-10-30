@@ -168,7 +168,16 @@ function Parse-BackupDetails ($BackupDetails) {
     foreach ($backup in $BackupDetails) {
         if ($backup.Session.Length -gt 0) {
             $tasks = Get-VBRTaskSession -Session $backup.Session.Id # get tasks for latest session
-            $backup.SessionType = Get-SessionType -Type $tasks[0].JobSess.SessionInfo.SessionAlgorithm # get session type based on one task 
+
+            # get session type based on one task
+            if ($tasks[0].JobSess.SessionInfo.SessionAlgorithm -eq $null -or $tasks[0].JobSess.SessionInfo.SessionAlgorithm -eq "") {
+                # for Veeam 13
+                $backup.SessionType = Get-SessionType $tasks[0].Info.WorkDetails.TaskAlgorithm
+            }
+            else {
+                # for Veeam 12
+                $backup.SessionType = Get-SessionType -Type $tasks[0].JobSess.SessionInfo.SessionAlgorithm
+            }
 
             switch ($backup.Session.Result.ToString()) {
                 "Failed" {
@@ -292,19 +301,25 @@ function Write-BackupDetailsToFile ($BackupDetails, $Date, $Directory) {
 }
 
 ### MAIN
-# check for existence of Veeam.Backup.PowerShell
-# version == 0.0 means the module is not found
-if ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version.Major -eq 5) {
-    Write-Host "The Veeam.Backup.PowerShell module is not installed on the server." -BackgroundColor Red -ForegroundColor White
-    Write-Host "If running on Veeam 13, rerun this script with pwsh.exe instead of powershell.exe." -BackgroundColor Orange -ForegroundColor Black
+# try to import Veeam.Backup.PowerShell
+try {
+    Import-Module Veeam.Backup.PowerShell -ErrorAction Stop -WarningAction SilentlyContinue
+}
+catch [System.IO.FileNotFoundException] {
+    Write-Host $Error[0]
+    Write-Host "The Veeam.Backup.PowerShell module is not installed on the server." -BackgroundColor Red -ForegroundColor Black
     exit(1)
 }
-elseif ($(Get-Module Veeam.Backup.PowerShell).Version.Major -eq 0 -and $(Get-Host).Version.Major -eq 7) {
-    Write-Host "The Veeam.Backup.PowerShell module is not installed on the server." -BackgroundColor Red -ForegroundColor White
+catch [System.InvalidOperationException] {
+    Write-Host $Error[0]
+    Write-Host "If running on Veeam 13, rerun this script with pwsh.exe instead of powershell.exe." -BackgroundColor Red -ForegroundColor Black
     exit(1)
 }
-
-Import-Module Veeam.Backup.PowerShell -WarningAction SilentlyContinue
+catch {
+    Write-Host $Error[0]
+    Write-Host "Unhandled exception caught. Unable to import the Veeam.Backup.PowerShell module." -BackgroundColor Red -ForegroundColor Black
+    exit(1)
+}
 
 # terminate on window hours being below 0 or above 23
 if ($StartWindowHour -lt 0 -or $StartWindowHour -gt 23) {
