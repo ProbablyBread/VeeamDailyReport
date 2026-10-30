@@ -358,7 +358,7 @@ if ($PSBoundParameters.ContainsKey("EndDate")) {
         $EndDate = (Get-Date $EndDate).Date.AddHours($EndWindowHour)
     }
     catch [System.Management.Automation.ParameterBindingException] {
-        Write-Error "Unable to parse the input string for the -StartDate parameter (valid formats are e.g. 01 Sep 2026 or 2026/09/01)."
+        Write-Error "Unable to parse the input string for the -EndDate parameter (valid formats are e.g. 01 Sep 2026 or 2026/09/01)."
         exit(1)
     }
 }
